@@ -136,11 +136,13 @@ router.post('/', requireAuth, validateBody(createWorkOrderSchema),
       if (!unit) throw new NotFoundError('Unit not found');
 
       // TENANT: verify active lease on unit
+      // Uses canonical lease_service.leases + public.tenant_profiles compat view
+      // (leases are written to lease_service.leases during invitation acceptance)
       if (user.role === UserRole.TENANT) {
         const lease = await queryOne(
-          `SELECT l."id" FROM "Lease" l
-           JOIN "TenantProfile" tp ON tp."leaseId" = l."id"
-           WHERE l."unitId" = $1 AND tp."userId" = $2 AND l."organizationId" = $3 AND l."status" = 'ACTIVE'`,
+          `SELECT l.id FROM lease_service.leases l
+           JOIN tenant_profiles tp ON tp.lease_id = l.id
+           WHERE l.unit_id = $1 AND tp.user_id = $2 AND l.org_id = $3 AND l.status = 'ACTIVE'`,
           [unitId, user.userId, user.orgId],
         );
         if (!lease) throw new NotFoundError('Unit not found');

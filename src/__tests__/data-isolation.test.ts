@@ -82,11 +82,31 @@ describe('Data Isolation — maintenance-service', () => {
         .mockResolvedValueOnce({ id: 'wo1', unitId: 'unit-1' }); // insert
       expect((await req(port, 'POST', '/m/', body)).status).toBe(201);
     });
+    it('validates against canonical lease_service.leases (not Prisma Lease)', async () => {
+      activeUser.current = user({ role: 'TENANT', userId: 't1' });
+      mockQueryOne
+        .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists check
+        .mockResolvedValueOnce({ id: 'lease-1' })   // lease ownership check
+        .mockResolvedValueOnce({ id: 'wo1' });       // insert
+      await req(port, 'POST', '/m/', body);
+      // 2nd queryOne call = lease validation
+      const leaseSql = mockQueryOne.mock.calls[1][0] as string;
+      expect(leaseSql).toContain('lease_service.leases');
+      expect(leaseSql).toContain('tenant_profiles');
+      expect(leaseSql).not.toContain('"Lease"');
+    });
     it('returns 404 for TENANT with no active lease on unit', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
       mockQueryOne
         .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists
         .mockResolvedValueOnce(null);                // no matching lease
+      expect((await req(port, 'POST', '/m/', body)).status).toBe(404);
+    });
+    it('returns 404 for cross-tenant access (different userId)', async () => {
+      activeUser.current = user({ role: 'TENANT', userId: 'other-tenant' });
+      mockQueryOne
+        .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists in org
+        .mockResolvedValueOnce(null);                // no lease for this tenant on this unit
       expect((await req(port, 'POST', '/m/', body)).status).toBe(404);
     });
     it('returns 404 when unit not in org', async () => {
