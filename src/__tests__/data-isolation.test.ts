@@ -77,48 +77,48 @@ describe('Data Isolation — maintenance-service', () => {
     it('returns 201 for TENANT with active lease on unit', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists check
-        .mockResolvedValueOnce({ id: 'lease-1' })   // lease ownership check
-        .mockResolvedValueOnce({ id: 'wo1', unitId: 'unit-1' }); // insert
+        .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })  // unit exists check
+        .mockResolvedValueOnce({ id: 'lease-1' })                        // lease ownership check
+        .mockResolvedValueOnce({ id: 'wo1', unit_id: 'unit-1' });        // insert
       expect((await req(port, 'POST', '/m/', body)).status).toBe(201);
     });
     it('validates against canonical lease_service.leases (not Prisma Lease)', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists check
-        .mockResolvedValueOnce({ id: 'lease-1' })   // lease ownership check
-        .mockResolvedValueOnce({ id: 'wo1' });       // insert
+        .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })  // unit exists check
+        .mockResolvedValueOnce({ id: 'lease-1' })                        // lease ownership check
+        .mockResolvedValueOnce({ id: 'wo1' });                           // insert
       await req(port, 'POST', '/m/', body);
       // 2nd queryOne call = lease validation
       const leaseSql = mockQueryOne.mock.calls[1][0] as string;
       expect(leaseSql).toContain('lease_service.leases');
-      expect(leaseSql).toContain('tenant_profiles');
+      expect(leaseSql).toContain('TenantProfile');
       expect(leaseSql).not.toContain('"Lease"');
     });
     it('returns 404 for TENANT with no active lease on unit', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists
-        .mockResolvedValueOnce(null);                // no matching lease
+        .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })  // unit exists
+        .mockResolvedValueOnce(null);                                     // no matching lease
       expect((await req(port, 'POST', '/m/', body)).status).toBe(404);
     });
     it('returns 404 for cross-tenant access (different userId)', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 'other-tenant' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists in org
-        .mockResolvedValueOnce(null);                // no lease for this tenant on this unit
+        .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })  // unit exists in org
+        .mockResolvedValueOnce(null);                                     // no lease for this tenant
       expect((await req(port, 'POST', '/m/', body)).status).toBe(404);
     });
     it('returns 404 when unit not in org', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1', orgId: 'org-other' });
-      mockQueryOne.mockResolvedValueOnce(null);      // unit not found (org mismatch)
+      mockQueryOne.mockResolvedValueOnce(null);  // unit not found (org mismatch)
       expect((await req(port, 'POST', '/m/', body)).status).toBe(404);
     });
     it('returns 201 for OWNER without lease check', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'unit-1' })    // unit exists check
-        .mockResolvedValueOnce({ id: 'wo1', unitId: 'unit-1' }); // insert
+        .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })  // unit exists check
+        .mockResolvedValueOnce({ id: 'wo1', unit_id: 'unit-1' });        // insert
       const r = await req(port, 'POST', '/m/', body);
       expect(r.status).toBe(201);
       // unit check + insert = 2 calls (no lease check)
@@ -130,17 +130,17 @@ describe('Data Isolation — maintenance-service', () => {
   describe('M3: GET /:id tenant ownership', () => {
     it('returns 200 for TENANT who owns the work order', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organizationId: 'org-1', createdByUserId: 't1', propertyId: 'prop-1' });
+      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organization_id: 'org-1', created_by_user_id: 't1', property_id: 'prop-1' });
       expect((await req(port, 'GET', '/m/wo1')).status).toBe(200);
     });
     it('returns 404 for TENANT who does NOT own it', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organizationId: 'org-1', createdByUserId: 'other', propertyId: 'prop-1' });
+      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organization_id: 'org-1', created_by_user_id: 'other', property_id: 'prop-1' });
       expect((await req(port, 'GET', '/m/wo1')).status).toBe(404);
     });
     it('returns 200 for OWNER regardless of ownership', async () => {
       activeUser.current = user({ role: 'OWNER' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organizationId: 'org-1', createdByUserId: 'other', propertyId: 'prop-1' });
+      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organization_id: 'org-1', created_by_user_id: 'other', property_id: 'prop-1' });
       expect((await req(port, 'GET', '/m/wo1')).status).toBe(200);
     });
     it('returns 404 when work order not in org (cross-org)', async () => {
@@ -159,12 +159,12 @@ describe('Data Isolation — maintenance-service', () => {
     });
     it('returns 404 for TENANT when parent owned by another tenant', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organizationId: 'org-1', createdByUserId: 'other' });
+      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organization_id: 'org-1', created_by_user_id: 'other' });
       expect((await req(port, 'GET', '/m/wo1/comments')).status).toBe(404);
     });
     it('returns 200 for TENANT who owns parent work order', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organizationId: 'org-1', createdByUserId: 't1' });
+      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organization_id: 'org-1', created_by_user_id: 't1' });
       mockQuery.mockResolvedValueOnce([{ id: 'c1', comment: 'hi' }]);
       expect((await req(port, 'GET', '/m/wo1/comments')).status).toBe(200);
     });
@@ -179,14 +179,14 @@ describe('Data Isolation — maintenance-service', () => {
     });
     it('returns 404 for TENANT when parent owned by another tenant', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organizationId: 'org-1', createdByUserId: 'other' });
+      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', organization_id: 'org-1', created_by_user_id: 'other' });
       expect((await req(port, 'POST', '/m/wo1/comments', { comment: 'test' })).status).toBe(404);
     });
     it('returns 201 for TENANT who owns parent work order', async () => {
       activeUser.current = user({ role: 'TENANT', userId: 't1' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'wo1', organizationId: 'org-1', createdByUserId: 't1' })
-        .mockResolvedValueOnce({ id: 'c1', workOrderId: 'wo1', comment: 'test' });
+        .mockResolvedValueOnce({ id: 'wo1', organization_id: 'org-1', created_by_user_id: 't1' })
+        .mockResolvedValueOnce({ id: 'c1', work_order_id: 'wo1', comment: 'test' });
       expect((await req(port, 'POST', '/m/wo1/comments', { comment: 'test' })).status).toBe(201);
     });
   });
@@ -200,12 +200,12 @@ describe('Data Isolation — maintenance-service', () => {
     it('returns 200 with counts by status for OWNER', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQuery.mockResolvedValueOnce([
-        { status: 'OPEN', count: '3' },
+        { status: 'SUBMITTED', count: '3' },
         { status: 'IN_PROGRESS', count: '2' },
       ]);
       const r = await req(port, 'GET', '/m/stats');
       expect(r.status).toBe(200);
-      expect(r.body.data).toEqual({ open: 3, in_progress: 2 });
+      expect(r.body.data).toEqual({ submitted: 3, in_progress: 2 });
     });
     it('returns empty object when no work orders', async () => {
       activeUser.current = user({ role: 'OWNER' });
@@ -222,12 +222,12 @@ describe('Data Isolation — maintenance-service', () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQuery.mockResolvedValueOnce([]);
       mockQueryOne.mockResolvedValueOnce({ count: '0' });
-      await req(port, 'GET', '/m/?status=OPEN&priority=HIGH');
+      await req(port, 'GET', '/m/?status=SUBMITTED&priority=HIGH');
       const sql = mockQuery.mock.calls[0][0] as string;
       const params = mockQuery.mock.calls[0][1] as unknown[];
-      expect(sql).toContain('"status"');
-      expect(sql).toContain('"priority"');
-      expect(params).toContain('OPEN');
+      expect(sql).toContain('wo.status');
+      expect(sql).toContain('wo.priority');
+      expect(params).toContain('SUBMITTED');
       expect(params).toContain('HIGH');
     });
     it('filters by propertyId via Unit JOIN', async () => {
@@ -236,7 +236,7 @@ describe('Data Isolation — maintenance-service', () => {
       mockQueryOne.mockResolvedValueOnce({ count: '0' });
       await req(port, 'GET', '/m/?propertyId=prop-1');
       const sql = mockQuery.mock.calls[0][0] as string;
-      expect(sql).toContain('JOIN "Unit"');
+      expect(sql).toContain('property_service.units');
       const params = mockQuery.mock.calls[0][1] as unknown[];
       expect(params).toContain('prop-1');
     });
@@ -252,29 +252,29 @@ describe('Data Isolation — maintenance-service', () => {
 
   /* ── M8: OWNER write access ──────────────────────────────── */
   describe('M8: OWNER write access', () => {
-    it('OWNER can PUT /:id', async () => {
+    it('OWNER can PATCH /:id', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQueryOne.mockResolvedValueOnce({ id: 'wo1', category: 'HVAC' });
-      const r = await req(port, 'PUT', '/m/wo1', { category: 'HVAC' });
+      const r = await req(port, 'PATCH', '/m/wo1', { category: 'HVAC' });
       expect(r.status).toBe(200);
     });
-    it('OWNER can PATCH /:id/status', async () => {
+    it('OWNER can PATCH /:id/status (valid transition)', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQueryOne
-        .mockResolvedValueOnce({ status: 'OPEN' })
-        .mockResolvedValueOnce({ id: 'wo1', status: 'IN_PROGRESS' });
-      const r = await req(port, 'PATCH', '/m/wo1/status', { status: 'IN_PROGRESS' });
+        .mockResolvedValueOnce({ status: 'SUBMITTED' })
+        .mockResolvedValueOnce({ id: 'wo1', status: 'IN_REVIEW' });
+      const r = await req(port, 'PATCH', '/m/wo1/status', { status: 'IN_REVIEW' });
       expect(r.status).toBe(200);
     });
     it('OWNER can PATCH /:id/assign', async () => {
       activeUser.current = user({ role: 'OWNER' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', assigneeId: 'pm1' });
+      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', assignee_id: 'pm1' });
       const r = await req(port, 'PATCH', '/m/wo1/assign', { assigneeId: 'pm1' });
       expect(r.status).toBe(200);
     });
-    it('TENANT cannot PUT /:id', async () => {
+    it('TENANT cannot PATCH /:id', async () => {
       activeUser.current = user({ role: 'TENANT' });
-      expect((await req(port, 'PUT', '/m/wo1', { category: 'HVAC' })).status).toBe(403);
+      expect((await req(port, 'PATCH', '/m/wo1', { category: 'HVAC' })).status).toBe(403);
     });
     it('TENANT cannot PATCH /:id/status', async () => {
       activeUser.current = user({ role: 'TENANT' });
@@ -286,93 +286,90 @@ describe('Data Isolation — maintenance-service', () => {
     });
   });
 
-  /* ── M9: Property context resolved via JOIN (not stored) ─── */
-  describe('M9: Property context resolved via JOIN', () => {
-    it('GET /:id returns propertyId from Unit join', async () => {
+  /* ── M9: Canonical table references ────────────────────────── */
+  describe('M9: Canonical table references', () => {
+    it('GET /:id returns property context from Unit join', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQueryOne.mockResolvedValueOnce({
-        id: 'wo1', organizationId: 'org-1', unitId: 'unit-1',
-        createdByUserId: 'u1', propertyId: 'prop-1',
+        id: 'wo1', organization_id: 'org-1', unit_id: 'unit-1',
+        created_by_user_id: 'u1', property_id: 'prop-1',
       });
       const r = await req(port, 'GET', '/m/wo1');
       expect(r.status).toBe(200);
-      expect(r.body.data.propertyId).toBe('prop-1');
+      expect(r.body.data.property_id).toBe('prop-1');
       const sql = mockQueryOne.mock.calls[0][0] as string;
-      expect(sql).toContain('JOIN "Unit"');
+      expect(sql).toContain('property_service.units');
     });
-    it('GET / list includes propertyId from Unit join', async () => {
+    it('GET / list uses canonical tables', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQuery.mockResolvedValueOnce([
-        { id: 'wo1', unitId: 'unit-1', propertyId: 'prop-1' },
+        { id: 'wo1', unit_id: 'unit-1', property_id: 'prop-1' },
       ]);
       mockQueryOne.mockResolvedValueOnce({ count: '1' });
       const r = await req(port, 'GET', '/m/');
       expect(r.status).toBe(200);
-      expect(r.body.data[0].propertyId).toBe('prop-1');
       const sql = mockQuery.mock.calls[0][0] as string;
-      expect(sql).toContain('JOIN "Unit"');
+      expect(sql).toContain('maintenance_service.work_orders');
+      expect(sql).toContain('property_service.units');
     });
-    it('GET /mine includes propertyId from Unit join', async () => {
-      activeUser.current = user({ role: 'TENANT', userId: 't1' });
-      mockQuery.mockResolvedValueOnce([
-        { id: 'wo1', unitId: 'unit-1', propertyId: 'prop-1', createdByUserId: 't1' },
-      ]);
-      mockQueryOne.mockResolvedValueOnce({ count: '1' });
-      const r = await req(port, 'GET', '/m/mine');
-      expect(r.status).toBe(200);
-      expect(r.body.data[0].propertyId).toBe('prop-1');
-    });
-    it('POST / does NOT write propertyId to WorkOrder row', async () => {
+    it('POST / INSERT uses maintenance_service.work_orders + property_id', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'unit-1' })
+        .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })
         .mockResolvedValueOnce({ id: 'wo1' });
       await req(port, 'POST', '/m/', { unitId: 'unit-1', category: 'PLUMBING', priority: 'MEDIUM', description: 'Leak' });
       const insertSql = mockQueryOne.mock.calls[1][0] as string;
-      expect(insertSql).toContain('INSERT INTO "WorkOrder"');
-      expect(insertSql).not.toContain('"propertyId"');
+      expect(insertSql).toContain('maintenance_service.work_orders');
+      expect(insertSql).toContain('property_id');
     });
   });
 
-  /* ── M10: Enum validation ────────────────────────────────── */
-  describe('M10: Enum validation', () => {
-    // Note: Zod validation rejects these values. In the test environment, ZodError
-    // instanceof check in validateBody may fail due to module duplication, so the
-    // error handler returns 500 instead of 400. We assert >= 400 (rejected) here.
-    it('rejects status ON_HOLD (not in deployed enum)', async () => {
+  /* ── M10: Enum validation & status transitions ──────────── */
+  describe('M10: Enum validation & status transitions', () => {
+    it('rejects status ON_HOLD (not in enum)', async () => {
       activeUser.current = user({ role: 'OWNER' });
       expect((await req(port, 'PATCH', '/m/wo1/status', { status: 'ON_HOLD' })).status).toBeGreaterThanOrEqual(400);
     });
-    it('rejects status COMPLETED (not in deployed enum)', async () => {
+    it('rejects invalid transition: SUBMITTED → COMPLETED', async () => {
       activeUser.current = user({ role: 'OWNER' });
-      expect((await req(port, 'PATCH', '/m/wo1/status', { status: 'COMPLETED' })).status).toBeGreaterThanOrEqual(400);
+      mockQueryOne.mockResolvedValueOnce({ status: 'SUBMITTED' });
+      const r = await req(port, 'PATCH', '/m/wo1/status', { status: 'COMPLETED' });
+      // ValidationError from transition check
+      expect(r.status).toBeGreaterThanOrEqual(400);
     });
-    it('rejects status CANCELLED (not in deployed enum)', async () => {
+    it('allows valid transition: SUBMITTED → IN_REVIEW', async () => {
       activeUser.current = user({ role: 'OWNER' });
-      expect((await req(port, 'PATCH', '/m/wo1/status', { status: 'CANCELLED' })).status).toBeGreaterThanOrEqual(400);
+      mockQueryOne
+        .mockResolvedValueOnce({ status: 'SUBMITTED' })
+        .mockResolvedValueOnce({ id: 'wo1', status: 'IN_REVIEW' });
+      const r = await req(port, 'PATCH', '/m/wo1/status', { status: 'IN_REVIEW' });
+      expect(r.status).toBe(200);
     });
-    it('accepts all valid statuses: OPEN, IN_PROGRESS, RESOLVED, CLOSED', async () => {
-      for (const status of ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']) {
+    it('allows valid transition: IN_PROGRESS → COMPLETED', async () => {
+      activeUser.current = user({ role: 'OWNER' });
+      mockQueryOne
+        .mockResolvedValueOnce({ status: 'IN_PROGRESS' })
+        .mockResolvedValueOnce({ id: 'wo1', status: 'COMPLETED' });
+      const r = await req(port, 'PATCH', '/m/wo1/status', { status: 'COMPLETED' });
+      expect(r.status).toBe(200);
+    });
+    it('allows jump to CLOSED from any active status', async () => {
+      for (const from of ['SUBMITTED', 'IN_REVIEW', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED']) {
         mockQueryOne.mockReset();
         activeUser.current = user({ role: 'OWNER' });
         mockQueryOne
-          .mockResolvedValueOnce({ status: 'OPEN' })
-          .mockResolvedValueOnce({ id: 'wo1', status });
-        const r = await req(port, 'PATCH', '/m/wo1/status', { status });
+          .mockResolvedValueOnce({ status: from })
+          .mockResolvedValueOnce({ id: 'wo1', status: 'CLOSED' });
+        const r = await req(port, 'PATCH', '/m/wo1/status', { status: 'CLOSED' });
         expect(r.status).toBe(200);
       }
     });
-    it('rejects priority URGENT (not in deployed enum)', async () => {
-      activeUser.current = user({ role: 'OWNER' });
-      const r = await req(port, 'POST', '/m/', { unitId: 'unit-1', category: 'PLUMBING', priority: 'URGENT', description: 'Leak' });
-      expect(r.status).toBeGreaterThanOrEqual(400);
-    });
-    it('accepts all valid priorities: LOW, MEDIUM, HIGH', async () => {
-      for (const priority of ['LOW', 'MEDIUM', 'HIGH']) {
+    it('accepts all valid priorities: LOW, MEDIUM, HIGH, URGENT', async () => {
+      for (const priority of ['LOW', 'MEDIUM', 'HIGH', 'URGENT']) {
         mockQueryOne.mockReset();
         activeUser.current = user({ role: 'OWNER' });
         mockQueryOne
-          .mockResolvedValueOnce({ id: 'unit-1' })
+          .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })
           .mockResolvedValueOnce({ id: 'wo1' });
         const r = await req(port, 'POST', '/m/', { unitId: 'unit-1', category: 'PLUMBING', priority, description: 'Leak' });
         expect(r.status).toBe(201);
@@ -380,22 +377,51 @@ describe('Data Isolation — maintenance-service', () => {
     });
   });
 
-  /* ── M11: No title column in deployed schema ─────────────── */
-  describe('M11: No title column in deployed schema', () => {
+  /* ── M11: Cancel endpoint ──────────────────────────────── */
+  describe('M11: Cancel endpoint', () => {
+    it('TENANT can cancel own work order in SUBMITTED status', async () => {
+      activeUser.current = user({ role: 'TENANT', userId: 't1' });
+      mockQueryOne
+        .mockResolvedValueOnce({ status: 'SUBMITTED', created_by_user_id: 't1' })
+        .mockResolvedValueOnce({ id: 'wo1', status: 'CANCELLED' });
+      const r = await req(port, 'POST', '/m/wo1/cancel');
+      expect(r.status).toBe(200);
+    });
+    it('TENANT can cancel own work order in IN_REVIEW status', async () => {
+      activeUser.current = user({ role: 'TENANT', userId: 't1' });
+      mockQueryOne
+        .mockResolvedValueOnce({ status: 'IN_REVIEW', created_by_user_id: 't1' })
+        .mockResolvedValueOnce({ id: 'wo1', status: 'CANCELLED' });
+      const r = await req(port, 'POST', '/m/wo1/cancel');
+      expect(r.status).toBe(200);
+    });
+    it('rejects cancel for work order in IN_PROGRESS status', async () => {
+      activeUser.current = user({ role: 'TENANT', userId: 't1' });
+      mockQueryOne.mockResolvedValueOnce({ status: 'IN_PROGRESS', created_by_user_id: 't1' });
+      const r = await req(port, 'POST', '/m/wo1/cancel');
+      expect(r.status).toBeGreaterThanOrEqual(400);
+    });
+    it('TENANT cannot cancel another tenant\'s work order', async () => {
+      activeUser.current = user({ role: 'TENANT', userId: 't1' });
+      mockQueryOne.mockResolvedValueOnce({ status: 'SUBMITTED', created_by_user_id: 'other' });
+      const r = await req(port, 'POST', '/m/wo1/cancel');
+      expect(r.status).toBe(404);
+    });
+    it('OWNER can also cancel (any org request)', async () => {
+      activeUser.current = user({ role: 'OWNER' });
+      mockQueryOne
+        .mockResolvedValueOnce({ status: 'SUBMITTED', created_by_user_id: 't1' })
+        .mockResolvedValueOnce({ id: 'wo1', status: 'CANCELLED' });
+      const r = await req(port, 'POST', '/m/wo1/cancel');
+      expect(r.status).toBe(200);
+    });
     it('POST / succeeds without title field', async () => {
       activeUser.current = user({ role: 'OWNER' });
       mockQueryOne
-        .mockResolvedValueOnce({ id: 'unit-1' })
+        .mockResolvedValueOnce({ id: 'unit-1', property_id: 'prop-1' })
         .mockResolvedValueOnce({ id: 'wo1' });
       const r = await req(port, 'POST', '/m/', { unitId: 'unit-1', category: 'PLUMBING', description: 'Drip' });
       expect(r.status).toBe(201);
-    });
-    it('PUT / update SQL does not reference title', async () => {
-      activeUser.current = user({ role: 'OWNER' });
-      mockQueryOne.mockResolvedValueOnce({ id: 'wo1', category: 'HVAC' });
-      await req(port, 'PUT', '/m/wo1', { title: 'New Title', category: 'HVAC' });
-      const sql = mockQueryOne.mock.calls[0][0] as string;
-      expect(sql).not.toContain('"title"');
     });
   });
 });
